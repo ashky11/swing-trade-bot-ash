@@ -22,7 +22,7 @@ def get_active_model_endpoint():
     """Dynamically fetch the active models available to this specific API key."""
     list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
     try:
-        res = requests.get(list_url, timeout=10)
+        res = requests.get(list_url, timeout=30)
         data = res.json()
         if "models" in data:
             available_names = [
@@ -74,7 +74,7 @@ Strictly return ONLY valid JSON matching this schema with no extra text or markd
     }
 
     try:
-        response = requests.post(url, headers=headers, json=payload, timeout=20)
+        response = requests.post(url, headers=headers, json=payload, timeout=60)
         data = response.json()
         
         if "error" in data:
@@ -100,7 +100,7 @@ def send_telegram_alert(message):
             "text": message,
             "parse_mode": "Markdown"
         }
-        res = requests.post(telegram_url, data=payload, timeout=10)
+        res = requests.post(telegram_url, data=payload, timeout=30)
         print(f"Telegram response: {res.status_code} - {res.text}")
     except Exception as e:
         print(f"Failed to send Telegram alert: {e}")
