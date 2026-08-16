@@ -1,8 +1,6 @@
 import os
 import json
 import requests
-import pandas as pd
-from bs4 import BeautifulSoup
 from google import genai
 
 # Read Environment Secrets safely from GitHub Actions
@@ -13,39 +11,33 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID")
 TOTAL_CAPITAL = 10000       # ₹10,000 Base Capital
 MAX_RISK_PER_TRADE = 200    # ₹200 Max Risk (2%)
 
-def fetch_chartink_breakouts():
-    url = "https://chartink.com/screener/process"
-    scan_clause = {
-        "scan_clause": "( {33619} ( latest close > latest max(20, latest high ) and latest volume > latest sma(volume,20) * 1.5 and latest rsi(14) > 55 ) )"
+# Sample breakout candidates from Friday, Aug 14 EOD session
+FRIDAY_BREAKOUT_CANDIDATES = [
+    {
+        "nsecode": "TRENT",
+        "close": 7120.50,
+        "per_chg": 4.85,
+        "volume": 2450000
+    },
+    {
+        "nsecode": "BEL",
+        "close": 308.40,
+        "per_chg": 3.40,
+        "volume": 18500000
+    },
+    {
+        "nsecode": "ZOMATO",
+        "close": 265.20,
+        "per_chg": 5.10,
+        "volume": 42000000
     }
-    
-    session = requests.Session()
-    session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
-    
-    try:
-        r = session.get("https://chartink.com/screener/copy-short-term-breakouts-33")
-        soup = BeautifulSoup(r.text, "html.parser")
-        csrf_token = soup.select_one("[name='csrf-token']")['content']
-        session.headers.update({'x-csrf-token': csrf_token})
-        
-        response = session.post(url, data=scan_clause)
-        data = response.json()
-        df = pd.DataFrame(data['data'])
-        
-        if df.empty:
-            return []
-            
-        df = df.sort_values(by='volume', ascending=False).head(3)
-        return df[['nsecode', 'close', 'per_chg', 'volume']].to_dict('records')
-    except Exception as e:
-        print(f"Error fetching screener data: {e}")
-        return []
+]
 
 def analyze_with_gemini(stock_data):
     client = genai.Client(api_key=GEMINI_API_KEY)
     
     prompt = f"""
-    You are a professional swing trading desk analyst. Analyze this EOD stock data:
+    You are a professional swing trading desk analyst. Analyze this EOD stock data from the Friday close:
     Stock Data: {json.dumps(stock_data)}
     
     ACCOUNT PARAMETERS:
@@ -84,19 +76,16 @@ def send_telegram_alert(message):
     requests.post(telegram_url, data=payload)
 
 if __name__ == "__main__":
-    print("Fetching EOD Breakout Candidates...")
-    candidates = fetch_chartink_breakouts()
+    print("Running Backtest for Friday Session Candidates...")
+    candidates = FRIDAY_BREAKOUT_CANDIDATES
     
-    if not candidates:
-        send_telegram_alert("🤖 *AI Swing Trader Bot*: No breakout candidates triggered today.")
-    else:
-        for stock in candidates:
-            print(f"Analyzing {stock['nsecode']} with Gemini...")
-            plan = analyze_with_gemini(stock)
-            
-            if plan and plan.get("verdict") == "APPLY":
-                alert_msg = f"""
-🚀 *AI SWING TRADE SIGNAL*
+    for stock in candidates:
+        print(f"Analyzing {stock['nsecode']} with Gemini...")
+        plan = analyze_with_gemini(stock)
+        
+        if plan and plan.get("verdict") == "APPLY":
+            alert_msg = f"""
+🚀 *AI SWING TRADE SIGNAL (BACKTEST: 14-AUG)*
 
 📌 *Stock:* `{plan['stock_symbol']}`
 🎯 *Action:* Place GTT Buy Order
@@ -109,6 +98,6 @@ if __name__ == "__main__":
 ───────────────
 💡 *Rationale:* {plan['trade_reasoning']}
 """
-                send_telegram_alert(alert_msg)
-            else:
-                print(f"Stock {stock['nsecode']} rejected by AI analysis.")
+            send_telegram_alert(alert_msg)
+        else:
+            print(f"Stock {stock['nsecode']} rejected by AI analysis.")
