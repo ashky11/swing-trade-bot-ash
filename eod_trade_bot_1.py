@@ -1,7 +1,10 @@
 import os
 import json
+import time
 import requests
 import traceback
+import pandas as pd
+from bs4 import BeautifulSoup
 
 # Read Environment Secrets safely from GitHub Actions
 GEMINI_API_KEY = os.environ.get("GEMINI_API_KEY", "").strip()
@@ -11,7 +14,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 TOTAL_CAPITAL = 10000       # ₹10,000 Base Capital
 MAX_RISK_PER_TRADE = 200    # ₹200 Max Risk (2%)
 
-# Backtest dataset from Friday session
+# Backtest dataset from Friday session (kept active for testing)
 FRIDAY_BREAKOUT_CANDIDATES = [
     {"nsecode": "TRENT", "close": 7120.50, "per_chg": 4.85, "volume": 2450000},
     {"nsecode": "BEL", "close": 308.40, "per_chg": 3.40, "volume": 18500000},
@@ -19,7 +22,6 @@ FRIDAY_BREAKOUT_CANDIDATES = [
 ]
 
 def get_active_model_endpoint():
-    """Dynamically fetch the active models available to this specific API key."""
     list_url = f"https://generativelanguage.googleapis.com/v1beta/models?key={GEMINI_API_KEY}"
     try:
         res = requests.get(list_url, timeout=30)
@@ -30,23 +32,23 @@ def get_active_model_endpoint():
                 for m in data["models"] 
                 if "generateContent" in m.get("supportedGenerationMethods", [])
             ]
-            print(f"Discovered available models: {available_names}")
-            
-            # Prioritize lightweight flash models
-            for target in ["gemini-3.5-flash", "gemini-3.1-flash-lite", "gemini-3.6-flash", "gemini-3-flash", "gemini-2.5-flash"]:
+            # Primary choice
+            for target in ["gemini-3.5-flash", "gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-flash-latest"]:
                 if target in available_names:
                     return target
-            
             if available_names:
                 return available_names[0]
     except Exception as e:
         print(f"Could not list models dynamically: {e}")
-    
     return "gemini-3.5-flash"
 
 def analyze_with_gemini(model_name, stock_data):
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/{model_name}:generateContent?key={GEMINI_API_KEY}"
-    
+    # List of models to try in case of capacity / high-demand issues
+    models_to_try = [model_name, "gemini-2.5-flash", "gemini-2.5-flash-lite"]
+    # De-duplicate while preserving order
+    seen = set()
+    models_to_try = [m for m in models_to_try if not (m in seen or seen.add(m))]
+
     prompt = f"""
 You are a professional swing trading desk analyst. Analyze this EOD stock data:
 Stock Data: {json.dumps(stock_data)}
@@ -73,24 +75,36 @@ Strictly return ONLY valid JSON matching this schema with no extra text or markd
         "contents": [{"parts": [{"text": prompt}]}]
     }
 
-    try:
-        response = requests.post(url, headers=headers, json=payload, timeout=60)
-        data = response.json()
+    for active_m in models_to_try:
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/{active_m}:generateContent?key={GEMINI_API_KEY}"
         
-        if "error" in data:
-            print(f"API Error for {stock_data['nsecode']} on {model_name}: {data['error'].get('message', '')}")
-            return None
-            
-        raw_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
-        if raw_text.startswith("```json"):
-            raw_text = raw_text[7:]
-        if raw_text.endswith("```"):
-            raw_text = raw_text[:-3]
-            
-        return json.loads(raw_text.strip())
-    except Exception as e:
-        print(f"Parsing error for {stock_data['nsecode']}: {e}")
-        return None
+        # Retry loop for temporary spikes/errors
+        for attempt in range(1, 4):
+            try:
+                response = requests.post(url, headers=headers, json=payload, timeout=60)
+                data = response.json()
+                
+                if "error" in data:
+                    err_msg = data['error'].get('message', '')
+                    print(f"[{active_m} - Attempt {attempt}] API Error for {stock_data['nsecode']}: {err_msg}")
+                    # If high demand or overloaded, wait briefly and retry
+                    if "high demand" in err_msg.lower() or "unavailable" in err_msg.lower() or "resource exhausted" in err_msg.lower():
+                        time.sleep(3 * attempt)
+                        continue
+                    break  # Break retry loop to try next model in fallback list
+                    
+                raw_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+                if raw_text.startswith("```json"):
+                    raw_text = raw_text[7:]
+                if raw_text.endswith("```"):
+                    raw_text = raw_text[:-3]
+                    
+                return json.loads(raw_text.strip())
+            except Exception as e:
+                print(f"[{active_m} - Attempt {attempt}] Network/Parsing error for {stock_data['nsecode']}: {e}")
+                time.sleep(2)
+
+    return None
 
 def send_telegram_alert(message):
     try:
@@ -129,5 +143,6 @@ if __name__ == "__main__":
 ───────────────
 💡 *Rationale:* {plan['trade_reasoning']}"""
             send_telegram_alert(alert_msg)
+            time.sleep(1)  # 1-second pause between Telegram alerts to respect rate limits
         else:
             print(f"Skipped {stock['nsecode']}")
