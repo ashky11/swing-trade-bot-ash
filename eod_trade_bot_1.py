@@ -19,8 +19,7 @@ FRIDAY_BREAKOUT_CANDIDATES = [
 ]
 
 def analyze_with_gemini(stock_data):
-    # Direct REST API endpoint
-    url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={GEMINI_API_KEY}"
+    url = f"https://generativelanguage.googleapis.com/v1beta/interactions?key={GEMINI_API_KEY}"
     
     prompt = f"""
 You are a professional swing trading desk analyst. Analyze this EOD stock data:
@@ -32,7 +31,7 @@ ACCOUNT PARAMETERS:
 
 TASK:
 Evaluate if this stock setup is worth taking. Provide trade parameters.
-Strictly return ONLY valid JSON matching this schema with no extra text or markdown formatting:
+Strictly return ONLY valid JSON matching this schema with no markdown formatting:
 {{
   "stock_symbol": "{stock_data['nsecode']}",
   "verdict": "APPLY",
@@ -45,9 +44,8 @@ Strictly return ONLY valid JSON matching this schema with no extra text or markd
 """
     headers = {"Content-Type": "application/json"}
     payload = {
-        "contents": [{
-            "parts": [{"text": prompt}]
-        }]
+        "model": "gemini-2.5-flash",
+        "input": prompt
     }
 
     try:
@@ -58,7 +56,14 @@ Strictly return ONLY valid JSON matching this schema with no extra text or markd
             print(f"API Error for {stock_data['nsecode']}: {data['error']}")
             return None
             
-        raw_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        raw_text = ""
+        if "outputs" in data and len(data["outputs"]) > 0:
+            raw_text = data["outputs"][0].get("text", "").strip()
+        elif "candidates" in data:
+            raw_text = data["candidates"][0]["content"]["parts"][0]["text"].strip()
+        else:
+            raw_text = str(data)
+
         if raw_text.startswith("```json"):
             raw_text = raw_text[7:]
         if raw_text.endswith("```"):
