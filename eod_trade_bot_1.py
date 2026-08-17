@@ -45,9 +45,12 @@ def fetch_chartink_breakouts():
         session.headers.update({'x-csrf-token': csrf_token})
         
         response = session.post(url, data=scan_clause, timeout=30)
+        print(f"Chartink status: {response.status_code}")
+        print(f"Chartink raw response: {response.text[:500]}")
         data = response.json()
-        df = pd.DataFrame(data['data'])
-        
+        df = pd.DataFrame(data.get('data', []))
+        print(f"Chartink rows returned: {len(df)}")
+
         if df.empty:
             return []
             
