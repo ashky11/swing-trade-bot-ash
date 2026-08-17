@@ -27,15 +27,16 @@ gemini_client = genai.Client(
 def fetch_chartink_breakouts():
     """Dynamically fetches real-time EOD breakout candidates from Chartink."""
     url = "https://chartink.com/screener/process"
-    scan_clause = {
-        "scan_clause": "( latest close > latest max(20, latest high ) and latest volume > latest sma(volume,20) * 1.5 and latest rsi(14) > 55 )"
-    }
-    
+
     session = requests.Session()
-    session.headers.update({'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'})
+    session.headers.update({
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36',
+        'Referer': 'https://chartink.com/screener/',
+        'X-Requested-With': 'XMLHttpRequest',
+    })
     
     try:
-        r = session.get("https://chartink.com/screener/copy-short-term-breakouts-33", timeout=30)
+        r = session.get("https://chartink.com/screener/", timeout=30)
         soup = BeautifulSoup(r.text, "html.parser")
         csrf_meta = soup.select_one("[name='csrf-token']")
         if not csrf_meta:
@@ -44,7 +45,13 @@ def fetch_chartink_breakouts():
         csrf_token = csrf_meta['content']
         session.headers.update({'x-csrf-token': csrf_token})
         
-        response = session.post(url, data=scan_clause, timeout=30)
+        post_data = {
+            "scan_clause": "( latest close > latest max(20, latest high ) and latest volume > latest sma(volume,20) * 1.5 and latest rsi(14) > 55 )",
+            "draw": "1",
+            "start": "0",
+            "length": "200",
+        }
+        response = session.post(url, data=post_data, timeout=30)
         print(f"Chartink status: {response.status_code}")
         print(f"Chartink raw response: {response.text[:500]}")
         data = response.json()
