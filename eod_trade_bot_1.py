@@ -28,7 +28,7 @@ def fetch_chartink_breakouts():
     """Dynamically fetches real-time EOD breakout candidates from Chartink."""
     url = "https://chartink.com/screener/process"
     scan_clause = {
-        "scan_clause": "( {33619} ( latest close > latest max(20, latest high ) and latest volume > latest sma(volume,20) * 1.5 and latest rsi(14) > 55 ) )"
+        "scan_clause": "( {cash} ( latest close > latest max(20, latest high ) and latest volume > latest sma(volume,20) * 1.5 and latest rsi(14) > 55 ) )"
     }
     
     session = requests.Session()
