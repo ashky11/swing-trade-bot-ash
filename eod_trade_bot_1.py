@@ -46,7 +46,7 @@ def fetch_chartink_breakouts():
         session.headers.update({'x-csrf-token': csrf_token})
         
         post_data = {
-            "scan_clause": "( latest close > latest max(20, latest high ) and latest volume > latest sma(volume,20) * 1.5 and latest rsi(14) > 55 )",
+            "scan_clause": "( latest close > 1 day ago max(20, latest high ) and latest volume > latest sma(latest volume,20) * 1.5 and latest rsi(14) > 55 )",
             "draw": "1",
             "start": "0",
             "length": "200",
