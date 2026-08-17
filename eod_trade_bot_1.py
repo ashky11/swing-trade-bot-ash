@@ -18,11 +18,8 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "").strip()
 TOTAL_CAPITAL = 10000       # ₹10,000 Base Capital
 MAX_RISK_PER_TRADE = 200    # ₹200 Max Risk (2%)
 
-MODEL_PRIORITY = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash", "gemini-2.5-flash"]
-gemini_client = genai.Client(
-    api_key=GEMINI_API_KEY,
-    http_options={"timeout": 120},  # 120s covers slow streamed responses
-)
+MODEL_PRIORITY = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.5-flash"]
+gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 def fetch_chartink_breakouts():
     """Dynamically fetches real-time EOD breakout candidates from Chartink."""
