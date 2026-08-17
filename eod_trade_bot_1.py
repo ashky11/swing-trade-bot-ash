@@ -249,4 +249,5 @@ if __name__ == "__main__":
                 send_telegram_alert(alert_msg)
                 time.sleep(1)
             else:
-                print(f"Skipped {stock['nsecode']}")
+                reason = plan.get('trade_reasoning', 'No reason provided')[:120] if plan else 'Gemini returned no result'
+                print(f"Skipped {stock['nsecode']} — {reason}")
