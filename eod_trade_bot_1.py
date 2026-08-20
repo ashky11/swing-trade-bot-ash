@@ -58,8 +58,8 @@ def fetch_chartink_breakouts():
         if df.empty:
             return []
             
-        # Select the top 3 highest volume breakout stocks of the day
-        df = df.sort_values(by='volume', ascending=False).head(3)
+        # Select the top 5 highest volume breakout stocks of the day
+        df = df.sort_values(by='volume', ascending=False).head(5)
         candidates = df[['nsecode', 'close', 'per_chg', 'volume']].to_dict('records')
         enriched = []
         for stock in candidates:
