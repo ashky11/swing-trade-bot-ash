@@ -165,18 +165,30 @@ Respond with a JSON object matching this schema:
         for attempt in range(1, 4):
             try:
                 print(f"[{active_m}] Analyzing {stock_data['nsecode']} (attempt {attempt})...", end=" ", flush=True)
-                full_text = ""
-                for chunk in gemini_client.models.generate_content_stream(
-                    model=active_m,
-                    contents=prompt,
-                    config=types.GenerateContentConfig(
-                        response_mime_type="application/json",
-                        temperature=0.3,
-                    )
-                ):
-                    if chunk.text:
-                        full_text += chunk.text
-                        print(".", end="", flush=True)
+
+                def _call():
+                    text = ""
+                    for chunk in gemini_client.models.generate_content_stream(
+                        model=active_m,
+                        contents=prompt,
+                        config=types.GenerateContentConfig(
+                            response_mime_type="application/json",
+                            temperature=0.3,
+                        )
+                    ):
+                        if chunk.text:
+                            text += chunk.text
+                            print(".", end="", flush=True)
+                    return text
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=1) as ex:
+                    future = ex.submit(_call)
+                    try:
+                        full_text = future.result(timeout=120)
+                    except concurrent.futures.TimeoutError:
+                        print(f"\n[{active_m} - Attempt {attempt}] Stream timed out after 120s for {stock_data['nsecode']}")
+                        time.sleep(3 * attempt)
+                        continue
                 print()
                 result = json.loads(full_text.strip())
                 # Hard-enforce 1:2 regardless of what Gemini returned
