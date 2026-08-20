@@ -127,37 +127,58 @@ def get_active_model_endpoint():
 def analyze_with_gemini(model_name, stock_data):
     models_to_try = [model_name] + [m for m in MODEL_PRIORITY if m != model_name]
 
-    atr = stock_data.get('atr_14') or round(stock_data['close'] * 0.04, 2)
+    atr = stock_data.get('atr_14')
+    if not atr or atr <= 0:
+        atr = round(stock_data.get('close', 0) * 0.04, 2)
+        stock_data['atr_14'] = atr
+
     prompt = f"""
-You are a professional swing trading desk analyst. Analyze this EOD breakout candidate:
-Stock Data: {json.dumps(stock_data)}
+You are a highly conservative, automated institutional swing trading desk analyst for the NSE.
+Your task is to parse raw EOD financial records, verify mathematical compliance against a strict
+risk management framework, and issue a flawless execution plan.
+
+RAW INPUT DATA:
+{json.dumps(stock_data, indent=2)}
 
 ACCOUNT PARAMETERS:
-- Capital Base: ₹{TOTAL_CAPITAL}
-- Maximum Risk Per Trade: ₹{MAX_RISK_PER_TRADE} (hard limit, never exceed)
-- 14-day ATR: ₹{atr} (use this as your volatility baseline)
+- Account Capital: ₹{TOTAL_CAPITAL}
+- Max Risk Per Trade: ₹{MAX_RISK_PER_TRADE} (Hard limit, never exceed)
 
-TASK — evaluate honestly, do NOT approve every stock:
-1. SKIP if the stock is already extended (close within 2% of 52-week high with no room left).
-2. SKIP if volume_ratio < 1.5 (no real volume confirmation).
-3. SKIP if the breakout risk/reward cannot reach 1:2 within a realistic 5-10 day holding period.
-4. APPLY only when you are genuinely confident in the setup.
+CRITICAL EXECUTION ALGORITHM — APPLY STEPS CHRONOLOGICALLY:
+1. Distance to 52-Week High:
+   - Compute EXACTLY: distance_pct = ((high_52w - close) / high_52w) * 100
+   - MANDATORY: If distance_pct <= 2.0%, issue SKIP immediately. No exceptions.
 
-PRICING RULES (mandatory):
-- stop_loss: place at the nearest natural support level (20-day low, or 1.5× ATR below close — use whichever is closer to entry)
-- target_price: MUST equal entry_price + 2 × (entry_price − stop_loss) — strict 1:2 minimum
-- quantity: floor(₹{MAX_RISK_PER_TRADE} ÷ (entry_price − stop_loss)), minimum 1
-- trade_reasoning: cite specific numbers from the data (ATR, volume_ratio, distance to 52w high, etc.)
+2. Volume Verification:
+   - MANDATORY: If volume_ratio < 1.5, issue SKIP immediately.
 
-Respond with a JSON object matching this schema:
+3. Stop Loss:
+   - atr_sl_level = close - (1.5 * atr_14)
+   - chosen_sl = whichever is CLOSER to close: atr_sl_level OR support_20d
+   - per_share_risk = close - chosen_sl
+
+4. Target Price:
+   - target = close + (2 * per_share_risk) — strict 1:2 minimum
+
+5. Quantity:
+   - quantity = floor(₹{MAX_RISK_PER_TRADE} / per_share_risk), minimum 1
+
+OUTPUT: A single JSON object. Fill the mathematical_scratchpad first to anchor your calculations.
 {{
-  "stock_symbol": "<symbol>",
+  "mathematical_scratchpad": {{
+    "calculated_distance_to_52w_high_percent": <float>,
+    "calculated_atr_sl_level": <float>,
+    "chosen_sl": <float>,
+    "per_share_risk": <float>,
+    "required_target_price": <float>
+  }},
+  "stock_symbol": "{stock_data.get('nsecode')}",
   "verdict": "<APPLY or SKIP>",
-  "entry_price": <number>,
-  "stop_loss": <number>,
-  "target_price": <number>,
+  "entry_price": {stock_data.get('close')},
+  "stop_loss": <copy chosen_sl>,
+  "target_price": <copy required_target_price>,
   "quantity": <integer>,
-  "trade_reasoning": "<reasoning citing actual numbers>"
+  "trade_reasoning": "<clinical summary citing exact metrics; if skipped, state exact rule breached>"
 }}
 """
 
@@ -173,7 +194,7 @@ Respond with a JSON object matching this schema:
                         contents=prompt,
                         config=types.GenerateContentConfig(
                             response_mime_type="application/json",
-                            temperature=0.3,
+                            temperature=0.0,
                         )
                     ):
                         if chunk.text:
@@ -191,7 +212,8 @@ Respond with a JSON object matching this schema:
                         continue
                 print()
                 result = json.loads(full_text.strip())
-                # Hard-enforce 1:2 regardless of what Gemini returned
+                # Hard-enforce 1:2 using scratchpad values if available, else use result fields
+                scratch = result.get('mathematical_scratchpad', {})
                 risk = round(result['entry_price'] - result['stop_loss'], 2)
                 if risk > 0:
                     min_target = round(result['entry_price'] + 2 * risk, 2)
@@ -239,6 +261,15 @@ if __name__ == "__main__":
         
         for stock in candidates:
             print(f"Analyzing {stock['nsecode']}...")
+
+            # Hard pre-filter: reject stocks within 2% of 52W high before Gemini sees them
+            high_52w = stock.get('high_52w')
+            if high_52w and high_52w > 0:
+                pct_below = (high_52w - stock['close']) / high_52w * 100
+                if pct_below < 2.0:
+                    print(f"Pre-filtered {stock['nsecode']} — {pct_below:.2f}% below 52W high (hard 2% rule)")
+                    continue
+
             plan = analyze_with_gemini(active_model, stock)
             
             if plan and plan.get("verdict") == "APPLY":
